@@ -10,7 +10,7 @@ import aiohttp
 # ==========================================
 TOKEN = os.getenv("TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-TON_USER_ID = 1470878046323216517
+TON_USER_ID = 964203981729595422
 STYLE_FILE = "style_data.json"
 
 # ==========================================
