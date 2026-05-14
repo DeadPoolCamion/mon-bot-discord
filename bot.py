@@ -3,13 +3,14 @@ from discord.ext import commands
 import json
 import os
 import random
-from collections import defaultdict
+import aiohttp
 
 # ==========================================
-# CONFIG — mets ton token ici
+# CONFIG
 # ==========================================
 TOKEN = os.getenv("TOKEN")
-TON_USER_ID = 964203981729595422  # Ton ID Discord (clic droit > Copier l'identifiant)
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+TON_USER_ID = 1470878046323216517
 STYLE_FILE = "style_data.json"
 
 # ==========================================
@@ -66,45 +67,101 @@ async def on_reaction_add(reaction, user):
             save_style(style_data)
 
 # ==========================================
-# COMMANDES FUN
+# FONCTION IA
 # ==========================================
+async def ask_claude(prompt):
+    headers = {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+    body = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post("https://api.anthropic.com/v1/messages", headers=headers, json=body) as resp:
+            data = await resp.json()
+            return data["content"][0]["text"]
+
+def get_style_context():
+    if not style_data["messages"]:
+        return "Pas encore de messages enregistrés."
+    exemples = random.sample(style_data["messages"], min(15, len(style_data["messages"])))
+    return "\n".join(f"- {m}" for m in exemples)
+
+# ==========================================
+# COMMANDES FUN AVEC IA
+# ==========================================
+
+@bot.command(name="blague")
+async def blague(ctx):
+    await ctx.typing()
+    contexte = get_style_context()
+    prompt = f"""Voici des exemples de messages d'une personne :
+{contexte}
+
+En imitant exactement son style d'écriture, son humour, ses expressions et son langage (argot, abréviations, emojis s'il en utilise), génère UNE blague courte et drôle. Réponds uniquement avec la blague, rien d'autre."""
+    try:
+        reponse = await ask_claude(prompt)
+        await ctx.send(reponse)
+    except:
+        await ctx.send("Aïe j'arrive pas à générer une blague là 💀")
+
+@bot.command(name="vanne")
+async def vanne(ctx, *, cible: str = None):
+    await ctx.typing()
+    contexte = get_style_context()
+    target = cible if cible else "quelqu'un au hasard"
+    prompt = f"""Voici des exemples de messages d'une personne :
+{contexte}
+
+En imitant exactement son style d'écriture, son humour et ses expressions, génère UNE vanne sympa et drôle (pas méchante) envers "{target}". Réponds uniquement avec la vanne, rien d'autre."""
+    try:
+        reponse = await ask_claude(prompt)
+        await ctx.send(reponse)
+    except:
+        await ctx.send("J'arrive pas à trouver une vanne là 😭")
+
+@bot.command(name="avis")
+async def avis(ctx, *, sujet: str):
+    await ctx.typing()
+    contexte = get_style_context()
+    prompt = f"""Voici des exemples de messages d'une personne :
+{contexte}
+
+En imitant exactement son style d'écriture, ses expressions et son humour, donne un avis tranché et drôle sur : "{sujet}". Réponds uniquement avec l'avis, rien d'autre."""
+    try:
+        reponse = await ask_claude(prompt)
+        await ctx.send(reponse)
+    except:
+        await ctx.send("J'ai pas d'avis là frr 😅")
+
+@bot.command(name="repond")
+async def repond(ctx, *, message: str):
+    await ctx.typing()
+    contexte = get_style_context()
+    prompt = f"""Voici des exemples de messages d'une personne :
+{contexte}
+
+En imitant exactement son style d'écriture, réponds à ce message comme si tu étais cette personne : "{message}". Réponds uniquement avec la réponse, rien d'autre."""
+    try:
+        reponse = await ask_claude(prompt)
+        await ctx.send(reponse)
+    except:
+        await ctx.send("Je sais pas quoi répondre là 💀")
 
 @bot.command(name="parle")
 async def parle(ctx):
-    """Le bot envoie un de tes vieux messages au hasard"""
     if not style_data["messages"]:
         await ctx.send("J'ai encore rien appris de toi frr 👀")
         return
     msg = random.choice(style_data["messages"])
     await ctx.send(msg)
 
-@bot.command(name="réagis")
-async def reagis(ctx):
-    """Le bot réagit avec un emoji que t'as déjà utilisé"""
-    if not style_data["reactions"]:
-        await ctx.send("T'as encore jamais réagi à rien 💀")
-        return
-    emoji = random.choice(style_data["reactions"])
-    try:
-        await ctx.message.add_reaction(emoji)
-    except:
-        await ctx.send(f"Je peux pas mettre {emoji} mais c'est ton style lol")
-
-@bot.command(name="mots")
-async def mots(ctx):
-    """Affiche tes mots les plus utilisés"""
-    if not style_data["words"]:
-        await ctx.send("Aucun mot appris pour l'instant")
-        return
-    top = sorted(style_data["words"].items(), key=lambda x: x[1], reverse=True)[:10]
-    result = "**Tes mots les + utilisés :**\n"
-    for word, count in top:
-        result += f"`{word}` — {count} fois\n"
-    await ctx.send(result)
-
 @bot.command(name="style")
 async def style_info(ctx):
-    """Stats sur ce que le bot a appris"""
     nb_msg = len(style_data["messages"])
     nb_emojis = len(style_data["reactions"])
     nb_mots = len(style_data["words"])
@@ -115,17 +172,17 @@ async def style_info(ctx):
         f"📝 {nb_mots} mots uniques"
     )
 
-@bot.command(name="reset")
-async def reset(ctx):
-    """Remet le style à zéro (à utiliser avec précaution)"""
-    if ctx.author.id != TON_USER_ID:
-        await ctx.send("T'es pas moi frérot 😭")
-        return
-    style_data["messages"] = []
-    style_data["reactions"] = []
-    style_data["words"] = {}
-    save_style(style_data)
-    await ctx.send("Style remis à zéro 🔄")
+@bot.command(name="commandes")
+async def commandes(ctx):
+    await ctx.send(
+        "**Commandes disponibles :**\n"
+        "`!blague` — génère une blague dans ton style\n"
+        "`!vanne @quelqu'un` — balance une vanne\n"
+        "`!avis [sujet]` — donne un avis sur n'importe quoi\n"
+        "`!repond [message]` — répond comme toi\n"
+        "`!parle` — répète un de tes vieux messages\n"
+        "`!style` — stats de ce que j'ai appris"
+    )
 
 # ==========================================
 # DÉMARRAGE
